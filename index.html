@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e1113">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Auto Foto-Assistent</title>
+<style>
+/* Layout: Kamerabild 16:9 links, schmale Bedienleiste rechts (Handy quer). Dunkel wie eine Kamera-App. */
+:root {
+  --bg: #0e1113;
+  --panel: #171b1e;
+  --line-soft: #2a3035;
+  --fg: #eef1f2;
+  --muted: #9aa4aa;
+  --accent: #ffc53d;      /* Klebeband-Gelb fuer Bodenlinie und Aktionen */
+  --ok: #4fd18b;
+  --warn: #ff7a59;
+  --guide: rgba(255,255,255,.92);
+  --font: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-cond: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.4 var(--font); overflow: hidden; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.screen { position: fixed; inset: 0; padding: env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px); }
+
+/* ---------- Start ---------- */
+#start, #done { overflow-y: auto; }
+.wrap { max-width: 620px; margin: 0 auto; padding-block: 28px 40px; padding-left: max(16px, env(safe-area-inset-left,0px)); padding-right: max(16px, env(safe-area-inset-right,0px)); display: flex; flex-direction: column; gap: 18px; }
+h1 { font: 700 34px/1.05 var(--font-cond); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+h1 span { color: var(--accent); }
+.lead { color: var(--muted); margin: 0; }
+.rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.rules li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; }
+.rules b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line-soft); font: 700 16px var(--font-cond); color: var(--accent); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 0 22px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line-soft); font-weight: 600; }
+.btn.main { background: var(--accent); color: #1a1400; border-color: transparent; }
+.btn.small { min-height: 40px; padding: 0 14px; font-size: 14px; }
+.btn.danger { color: var(--warn); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.err { background: #2a1714; border: 1px solid #5a2a20; color: #ffc2b2; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+
+/* ---------- Kamera ---------- */
+#cam { display: flex; background: #000; }
+#stageWrap { flex: 1; min-width: 0; position: relative; display: grid; place-items: center; }
+#stage { position: relative; overflow: hidden; background: #050607; }
+#stage video, #stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.9)) drop-shadow(0 0 4px rgba(0,0,0,.5)); }
+#guide .car path, #guide .car ellipse, #guide .car circle, #guide .car rect { fill: none; stroke: var(--guide); stroke-width: 2.2; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+#guide .car .out { stroke-width: 3.6; }
+#guide .ground { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 14 10; vector-effect: non-scaling-stroke; }
+#guide .center { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 4 10; vector-effect: non-scaling-stroke; opacity: .8; }
+#horizon { position: absolute; left: 50%; top: 50%; width: 22%; height: 0; border-top: 2px solid var(--warn); transform: translate(-50%,-50%); pointer-events: none; transition: border-color .15s; }
+#horizon.level { border-color: var(--ok); }
+#horizon::before, #horizon::after { content: ""; position: absolute; top: -7px; width: 2px; height: 12px; background: inherit; border-left: 2px solid; border-color: inherit; }
+#horizon::before { left: 0; } #horizon::after { right: 0; }
+#flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .25s; }
+#flash.on { opacity: .8; transition: none; }
+#tag { position: absolute; left: 10px; top: 10px; padding: 4px 10px; border-radius: 8px; background: rgba(0,0,0,.55); font: 600 15px var(--font-cond); letter-spacing: .03em; }
+#tag.review { background: var(--accent); color: #1a1400; }
+
+#panel { width: clamp(170px, 26vw, 260px); flex: none; background: var(--panel); border-left: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; overflow-y: auto; }
+.stepno { font: 600 13px var(--font-cond); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.steptitle { font: 700 24px/1.05 var(--font-cond); margin: 0; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.where { display: flex; gap: 10px; align-items: center; }
+.where svg { width: 56px; height: 70px; flex: none; }
+.where svg .carTop { fill: #262c31; stroke: var(--muted); stroke-width: 1.5; }
+.where svg .pos { fill: #3a4248; }
+.where svg .pos.now { fill: var(--accent); }
+.where svg .pos.ok { fill: var(--ok); }
+#levelText { font-size: 13px; font-weight: 600; }
+#levelText.ok { color: var(--ok); } #levelText.bad { color: var(--warn); }
+.actions { margin-top: auto; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+#shutter { align-self: center; width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; background: rgba(255,255,255,.12); display: grid; place-items: center; }
+#shutter::after { content: ""; width: 54px; height: 54px; border-radius: 50%; background: #fff; transition: transform .1s; }
+#shutter:active::after { transform: scale(.88); }
+.chips { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+.chip { height: 26px; border-radius: 6px; background: #22282c; font: 600 13px var(--font-cond); color: var(--muted); }
+.chip.ok { background: rgba(79,209,139,.18); color: var(--ok); }
+.chip.now { outline: 2px solid var(--accent); color: var(--fg); }
+.row { display: flex; gap: 6px; }
+.row .btn { flex: 1; padding: 0 8px; }
+.opac { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.opac input { flex: 1; min-width: 0; accent-color: var(--accent); }
+
+#rotate { position: fixed; inset: 0; z-index: 20; background: var(--bg); display: none; place-items: center; text-align: center; padding: 24px; }
+#rotate svg { width: 90px; height: 90px; margin-bottom: 14px; }
+@media (orientation: portrait) { body.camOn #rotate { display: grid; } }
+
+/* ---------- Fertig ---------- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.thumb { position: relative; border-radius: 10px; overflow: hidden; background: var(--panel); border: 1px solid var(--line-soft); text-align: left; padding: 0; }
+.thumb img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+.thumb .empty { aspect-ratio: 16/9; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+.thumb span { display: block; padding: 6px 8px; font: 600 14px var(--font-cond); }
+.btnrow { display: flex; flex-wrap: wrap; gap: 10px; }
+.btnrow .btn { flex: 1 1 200px; }
+#toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom,0px)); transform: translateX(-50%); background: #000c; border: 1px solid var(--line-soft); padding: 10px 16px; border-radius: 10px; font-size: 14px; z-index: 30; max-width: calc(100% - 32px); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Condensed:wght@600;700&display=swap">
+</head>
+<body>
+
+<!-- ======== START ======== -->
+<section id="start" class="screen">
+  <div class="wrap">
+    <h1>Auto <span>Foto-Assistent</span></h1>
+    <p class="lead">8 Fotos rund ums Auto, immer gleich ausgerichtet. Ein Umriss im Kamerabild zeigt, wo das Auto stehen soll.</p>
+    <ul class="rules">
+      <li><b>1</b><div><strong>Handy quer halten</strong>, auf Hüfthöhe (ca. 1 m) und gerade. Die Linie in der Mitte wird grün, wenn es passt.</div></li>
+      <li><b>2</b><div><strong>Nicht zoomen.</strong> Lieber hin- oder weggehen, bis das Auto im Umriss sitzt.</div></li>
+      <li><b>3</b><div><strong>Räder auf die gelbe Linie</strong>, ganzes Auto im Bild.</div></li>
+      <li><b>4</b><div>Foto prüfen, <strong>„Passt“</strong> tippen, zum nächsten Punkt gehen.</div></li>
+    </ul>
+    <div class="btnrow">
+      <button class="btn main" id="startBtn" type="button">Kamera starten</button>
+      <button class="btn" id="resumeDone" type="button" hidden>Fotos ansehen</button>
+    </div>
+    <p class="note" id="savedNote" hidden></p>
+    <div class="err" id="camErr" hidden></div>
+    <p class="note">Die Fotos bleiben auf deinem Handy, bis du sie speicherst. Nichts wird hochgeladen.</p>
+  </div>
+</section>
+
+<!-- ======== KAMERA ======== -->
+<section id="cam" class="screen" hidden>
+  <div id="stageWrap">
+    <div id="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <img id="review" alt="Aufgenommenes Foto" hidden>
+      <svg id="guide" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+        <line class="ground" x1="0" y1="742" x2="1600" y2="742"/>
+        <line class="center" id="centerLine" x1="800" y1="40" x2="800" y2="860"/>
+        <g id="mirror"><g class="car" id="carShape"></g></g>
+      </svg>
+      <div id="horizon" style="display:none"></div>
+      <div id="flash"></div>
+      <div id="tag"></div>
+    </div>
+  </div>
+  <aside id="panel">
+    <div>
+      <div class="stepno" id="stepNo">Foto 1 von 8</div>
+      <h2 class="steptitle" id="stepTitle">Vorne</h2>
+    </div>
+    <div class="where">
+      <svg viewBox="0 0 56 70" aria-hidden="true" id="mini">
+        <rect class="carTop" x="18" y="14" width="20" height="42" rx="6"/>
+        <path d="M21 22 h14" stroke="#9aa4aa" stroke-width="1.5"/>
+      </svg>
+      <p class="hint" id="stepHint"></p>
+    </div>
+    <div id="levelText">Handy auf Hüfthöhe, gerade halten</div>
+    <div class="opac"><label for="opacity">Umriss</label><input id="opacity" type="range" min="15" max="100" value="85"></div>
+    <div class="actions">
+      <div id="shootBox" style="display:flex;flex-direction:column;gap:8px">
+        <button id="shutter" type="button" aria-label="Foto aufnehmen"></button>
+        <label class="btn small" id="fallbackPick" hidden>Kamera-App öffnen<input id="fileInput" type="file" accept="image/*" capture="environment" hidden></label>
+      </div>
+      <div id="reviewBox" class="row" hidden>
+        <button class="btn small" id="retake" type="button">Nochmal</button>
+        <button class="btn small main" id="accept" type="button">Passt ✓</button>
+      </div>
+      <div class="chips" id="chips"></div>
+      <button class="btn small" id="toDone" type="button">Übersicht</button>
+    </div>
+  </aside>
+</section>
+
+<div id="rotate">
+  <div>
+    <svg viewBox="0 0 90 90" aria-hidden="true"><rect x="30" y="12" width="30" height="54" rx="5" fill="none" stroke="#ffc53d" stroke-width="3"/><path d="M14 70 q0 10 18 10 h20" fill="none" stroke="#eef1f2" stroke-width="3"/><path d="M48 74 l6 6 -6 6" fill="none" stroke="#eef1f2" stroke-width="3"/></svg>
+    <h2 class="steptitle">Handy quer halten</h2>
+    <p class="hint">Autofotos werden im Querformat gemacht.</p>
+  </div>
+</div>
+
+<!-- ======== FERTIG ======== -->
+<section id="done" class="screen" hidden>
+  <div class="wrap">
+    <h1>Deine <span>8 Fotos</span></h1>
+    <p class="lead" id="doneLead"></p>
+    <div class="grid" id="grid"></div>
+    <div class="btnrow">
+      <button class="btn main" id="shareAll" type="button">In Galerie speichern / teilen</button>
+      <button class="btn" id="dlAll" type="button">Alle herunterladen</button>
+      <button class="btn" id="dlZip" type="button">Als ZIP (für den PC)</button>
+    </div>
+    <p class="note">Tipp: Ein Foto antippen, um es neu zu machen.</p>
+    <div class="btnrow">
+      <button class="btn" id="backCam" type="button">Zurück zur Kamera</button>
+      <button class="btn danger" id="reset" type="button">Neu anfangen</button>
+    </div>
+  </div>
+</section>
+
+<div id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+
+/* ---------------- Die 8 Winkel ---------------- */
+const STEPS = [
+  { file: "01 vorne",                 title: "Vorne",                view: "front", mirror: false, pos: [28, 4],  hint: "Mittig vor das Auto. Kennzeichen auf die gestrichelte Mittellinie." },
+  { file: "02 schraeg vorne links",   title: "Schräg vorne links",   view: "f34",   mirror: false, pos: [6, 6],   hint: "An die vordere Ecke der Fahrerseite. Front und linke Seite sind zu sehen." },
+  { file: "03 seite links",           title: "Seite links",          view: "side",  mirror: false, pos: [4, 35],  hint: "Mitte der Fahrerseite, genau quer zum Auto. Front zeigt nach links." },
+  { file: "04 schraeg hinten links",  title: "Schräg hinten links",  view: "r34",   mirror: false, pos: [6, 64],  hint: "An die hintere Ecke der Fahrerseite. Heck und linke Seite sind zu sehen." },
+  { file: "05 hinten",                title: "Hinten",               view: "rear",  mirror: false, pos: [28, 66], hint: "Mittig hinter das Auto. Kennzeichen auf die Mittellinie." },
+  { file: "06 schraeg hinten rechts", title: "Schräg hinten rechts", view: "r34",   mirror: true,  pos: [50, 64], hint: "An die hintere Ecke der Beifahrerseite. Heck und rechte Seite sind zu sehen." },
+  { file: "07 seite rechts",          title: "Seite rechts",         view: "side",  mirror: true,  pos: [52, 35], hint: "Mitte der Beifahrerseite, genau quer zum Auto. Front zeigt nach rechts." },
+  { file: "08 schraeg vorne rechts",  title: "Schräg vorne rechts",  view: "f34",   mirror: true,  pos: [50, 6],  hint: "An die vordere Ecke der Beifahrerseite. Front und rechte Seite sind zu sehen." },
+];
+
+/* ---------------- Umrisse (Kombi, z. B. Audi A4 Avant / allroad), Bildflaeche 1600 x 900, Boden y = 742 ---------------- */
+const SHAPES = {
+  side: `
+    <path class="out" d="M215 694 L202 642 Q196 592 212 570 L232 548 Q400 520 600 500 Q700 405 785 370 Q820 362 900 361 L1250 360 Q1330 362 1360 402 L1386 520 L1396 600 L1392 682 L1355 692 L1240 692 A105 105 0 1 0 1044 692 L528 692 A105 105 0 1 0 332 692 Z"/>
+    <path d="M640 505 L790 386 Q805 377 830 376 L1232 374 Q1292 378 1312 420 L1322 505 Z"/>
+    <path d="M935 378 L942 505 M1150 375 L1160 505 M942 505 L948 650 M1160 505 L1165 640"/>
+    <path d="M600 500 L612 476 L650 478 L645 505"/>
+    <path d="M206 584 L300 566 L312 588 L215 602"/>
+    <path d="M1360 430 L1388 432 L1392 470 L1368 470"/>
+    <circle cx="430" cy="652" r="88"/><circle cx="430" cy="652" r="56"/>
+    <circle cx="1142" cy="652" r="88"/><circle cx="1142" cy="652" r="56"/>`,
+  front: `
+    <path class="out" d="M455 652 L450 520 Q452 470 482 455 L560 440 Q598 330 640 260 Q660 234 702 232 L898 232 Q940 234 960 260 Q1002 330 1040 440 L1118 455 Q1148 470 1150 520 L1145 652 Z"/>
+    <path d="M582 438 Q616 340 652 272 Q666 255 702 254 L898 254 Q934 255 948 272 Q984 340 1018 438 Q800 424 582 438 Z"/>
+    <path d="M560 440 L498 418 L486 446 L548 456 M1040 440 L1102 418 L1114 446 L1052 456"/>
+    <path d="M482 492 L648 504 L640 538 L492 530 Z M1118 492 L952 504 L960 538 L1108 530 Z"/>
+    <path d="M700 516 L900 516 L922 560 L906 642 L694 642 L678 560 Z"/>
+    <rect x="735" y="600" width="130" height="30" rx="3"/>
+    <path d="M462 652 L462 742 L560 742 L560 652 M1040 652 L1040 742 L1138 742 L1138 652"/>`,
+  rear: `
+    <path class="out" d="M455 652 L452 500 Q455 456 488 448 L600 438 Q612 320 640 262 Q658 236 700 234 L900 234 Q942 236 960 262 Q988 320 1000 438 L1112 448 Q1145 456 1148 500 L1145 652 Z"/>
+    <path d="M612 430 L640 282 Q652 262 684 260 L916 260 Q948 262 960 282 L988 430 Z"/>
+    <path d="M468 462 L620 452 L616 504 L476 508 Z M1132 462 L980 452 L984 504 L1124 508 Z"/>
+    <rect x="735" y="520" width="130" height="30" rx="3"/>
+    <path d="M460 598 L1140 598"/>
+    <path d="M462 652 L462 742 L560 742 L560 652 M1040 652 L1040 742 L1138 742 L1138 652"/>`,
+  f34: `
+    <path class="out" d="M250 692 L240 600 Q238 542 262 522 Q380 470 520 448 L640 330 Q660 318 700 318 L1290 352 Q1340 358 1362 400 L1378 470 L1388 640 L1370 664 L1310 668 C1300 560 1160 560 1150 672 L880 680 C870 560 710 560 700 690 L652 728 Z"/>
+    <path d="M262 522 L640 546 L1360 470 M640 546 L652 728"/>
+    <path d="M520 448 L640 330 L860 340 L800 470"/>
+    <path d="M870 466 L930 352 L1280 366 L1338 452 Z M1100 360 L1105 460"/>
+    <path d="M380 560 L560 572 L570 652 L392 640 Z"/>
+    <path d="M272 540 L362 546 L356 568 L276 562 M584 556 L636 558 L634 588 L590 584"/>
+    <path d="M430 610 L520 614 L520 636 L430 632 Z"/>
+    <ellipse cx="790" cy="668" rx="72" ry="82"/><ellipse cx="790" cy="668" rx="44" ry="52"/>
+    <ellipse cx="1230" cy="648" rx="60" ry="74"/><ellipse cx="1230" cy="648" rx="36" ry="46"/>`,
+  r34: `
+    <path class="out" d="M960 730 L1350 692 L1360 600 L1345 520 L1335 325 L990 332 Q700 340 520 350 L360 455 Q280 470 235 500 L218 560 L215 640 L260 668 C270 560 400 560 400 670 L710 685 C720 560 880 560 890 690 Z"/>
+    <path d="M990 332 L975 500 L960 730 M975 500 L360 470"/>
+    <path d="M1005 346 L1320 340 L1328 482 L988 490 Z"/>
+    <path d="M935 345 L560 356 L430 452 L925 478 Z M700 352 L690 466"/>
+    <path d="M968 500 L1040 500 L1040 532 L970 534 M1262 498 L1342 500 L1344 530 L1264 528"/>
+    <path d="M1100 560 L1200 558 L1200 586 L1100 588 Z"/>
+    <path d="M962 640 L1352 620"/>
+    <ellipse cx="800" cy="660" rx="72" ry="82"/><ellipse cx="800" cy="660" rx="44" ry="52"/>
+    <ellipse cx="330" cy="640" rx="58" ry="72"/><ellipse cx="330" cy="640" rx="35" ry="44"/>`
+};
+
+/* ---------------- Zustand ---------------- */
+const $ = id => document.getElementById(id);
+const shots = new Array(8).fill(null);   // {blob, url}
+let current = 0;
+let pending = null;                       // Foto in Pruefung
+let stream = null;
+let wakeLock = null;
+
+/* ---------------- Speicher auf dem Handy (IndexedDB) ---------------- */
+let dbp = null;
+function db() {
+  if (!dbp) dbp = new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open("fotoassistent", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("shots");
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) { rej(e); }
+  });
+  return dbp;
+}
+async function dbPut(i, blob) { try { const d = await db(); d.transaction("shots", "readwrite").objectStore("shots").put(blob, i); } catch (e) {} }
+async function dbClear() { try { const d = await db(); d.transaction("shots", "readwrite").objectStore("shots").clear(); } catch (e) {} }
+async function dbLoad() {
+  try {
+    const d = await db();
+    await Promise.all(STEPS.map((_, i) => new Promise(res => {
+      const r = d.transaction("shots").objectStore("shots").get(i);
+      r.onsuccess = () => { if (r.result) shots[i] = { blob: r.result, url: URL.createObjectURL(r.result) }; res(); };
+      r.onerror = () => res();
+    })));
+  } catch (e) {}
+}
+
+/* ---------------- Hilfen ---------------- */
+let toastT;
+function toast(msg, ms = 2600) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms); }
+const count = () => shots.filter(Boolean).length;
+const firstMissing = () => { const i = shots.findIndex(s => !s); return i < 0 ? 0 : i; };
+function show(id) { for (const s of ["start", "cam", "done"]) $(s).hidden = s !== id; document.body.classList.toggle("camOn", id === "cam"); if (id === "cam") fitStage(); }
+
+/* ---------------- Buehne 16:9 einpassen ---------------- */
+function fitStage() {
+  const w = $("stageWrap").clientWidth, h = $("stageWrap").clientHeight;
+  let sw = w, sh = w * 9 / 16;
+  if (sh > h) { sh = h; sw = h * 16 / 9; }
+  $("stage").style.width = sw + "px"; $("stage").style.height = sh + "px";
+}
+addEventListener("resize", fitStage);
+
+/* ---------------- Schritt anzeigen ---------------- */
+function renderStep() {
+  const s = STEPS[current];
+  $("stepNo").textContent = `Foto ${current + 1} von 8`;
+  $("stepTitle").textContent = s.title;
+  $("stepHint").textContent = s.hint;
+  $("carShape").innerHTML = SHAPES[s.view];
+  $("mirror").setAttribute("transform", s.mirror ? "translate(1600 0) scale(-1 1)" : "");
+  $("centerLine").style.display = (s.view === "front" || s.view === "rear") ? "" : "none";
+  // Mini-Karte: wo stehen
+  const mini = $("mini");
+  mini.querySelectorAll(".pos").forEach(n => n.remove());
+  STEPS.forEach((st, i) => {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", st.pos[0]); c.setAttribute("cy", st.pos[1]); c.setAttribute("r", i === current ? 4.5 : 3);
+    c.setAttribute("class", "pos" + (i === current ? " now" : shots[i] ? " ok" : ""));
+    mini.appendChild(c);
+  });
+  // Chips
+  $("chips").innerHTML = "";
+  STEPS.forEach((st, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip" + (shots[i] ? " ok" : "") + (i === current ? " now" : "");
+    b.textContent = shots[i] ? "✓" : i + 1;
+    b.setAttribute("aria-label", `${st.title}${shots[i] ? " (erledigt)" : ""}`);
+    b.onclick = () => { pending = null; current = i; setReview(false); renderStep(); };
+    $("chips").appendChild(b);
+  });
+  $("tag").textContent = shots[current] && !pending ? `${s.title} · schon fotografiert` : s.title;
+}
+
+function setReview(on) {
+  $("review").hidden = !on;
+  $("video").style.visibility = on ? "hidden" : "visible";
+  $("shootBox").hidden = on; $("reviewBox").hidden = !on;
+  $("horizon").hidden = on;
+  $("tag").classList.toggle("review", on);
+  if (on) $("tag").textContent = "Prüfen: sitzt das Auto im Umriss?";
+}
+
+/* ---------------- Kamera ---------------- */
+async function startCamera() {
+  $("camErr").hidden = true;
+  // Neigungssensor (iPhone braucht Erlaubnis per Tipp)
+  try { if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === "function") await DeviceMotionEvent.requestPermission(); } catch (e) {}
+  addEventListener("devicemotion", onMotion);
+  // Vollbild + Querformat (klappt auf Android, sonst egal)
+  try { await document.documentElement.requestFullscreen({ navigationUI: "hide" }); await screen.orientation.lock("landscape"); } catch (e) {}
+  try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return cameraFailed("Dieser Browser gibt die Kamera nicht frei. Bitte Chrome (Android) oder Safari (iPhone) nutzen und die Seite über https öffnen.");
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
+  } catch (e) {
+    return cameraFailed(e && e.name === "NotAllowedError"
+      ? "Kamera wurde nicht erlaubt. Oben in der Adressleiste auf das Schloss tippen → Kamera → Zulassen. Dann neu laden."
+      : "Kamera ließ sich nicht starten (" + (e && e.name || "Fehler") + ").");
+  }
+  const v = $("video"); v.srcObject = stream; try { await v.play(); } catch (e) {}
+  current = firstMissing(); pending = null;
+  show("cam"); setReview(false); renderStep();
+}
+function cameraFailed(msg) {
+  // Notloesung: Umriss bleibt, Foto kommt aus der normalen Kamera-App
+  $("camErr").textContent = msg + " Notlösung: Du kannst trotzdem weitermachen – dann öffnet sich die normale Kamera-App und der Umriss erscheint danach zur Kontrolle.";
+  $("camErr").hidden = false;
+  $("shutter").hidden = true; $("fallbackPick").hidden = false;
+  current = firstMissing(); show("cam"); setReview(false); renderStep();
+}
+function stopCamera() { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; try { wakeLock && wakeLock.release(); } catch (e) {} }
+
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible" && !$("cam").hidden) {
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {}
+    if (stream && stream.getVideoTracks().some(t => t.readyState === "ended")) startCamera();
+  }
+});
+
+/* ---------------- Wasserwaage ---------------- */
+let lastMotion = 0;
+function onMotion(e) {
+  const g = e.accelerationIncludingGravity; if (!g || g.x == null) return;
+  const now = performance.now(); if (now - lastMotion < 80) return; lastMotion = now;
+  const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  let up, right, z = g.z;
+  if (ang === 90)              { up = g.x;  right = -g.y; }
+  else if (ang === 270 || ang === -90) { up = -g.x; right = g.y; }
+  else if (ang === 180)        { up = -g.y; right = -g.x; }
+  else                         { up = g.y;  right = g.x; }
+  if (up < 0) { up = -up; right = -right; z = -z; }   // iPhone meldet umgekehrt
+  const roll = Math.atan2(right, up) * 180 / Math.PI;
+  const pitch = Math.atan2(z, up) * 180 / Math.PI;
+  const ok = Math.abs(roll) < 1.5 && Math.abs(pitch) < 6;
+  $("horizon").style.display = "";
+  $("horizon").style.transform = `translate(-50%,-50%) rotate(${-roll}deg)`;
+  $("horizon").classList.toggle("level", ok);
+  const lt = $("levelText");
+  lt.className = ok ? "ok" : "bad";
+  lt.textContent = ok ? "Gerade ✓" : Math.abs(pitch) >= 6 ? (pitch > 0 ? "Handy oben nach hinten kippen" : "Handy oben nach vorne kippen") : "Handy waagerecht drehen";
+}
+
+/* ---------------- Foto aufnehmen ---------------- */
+function grabFrame() {
+  const v = $("video"); const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw) return Promise.resolve(null);
+  let sx = 0, sy = 0, sw = vw, sh = vh;
+  if (vw / vh > 16 / 9) { sw = Math.round(vh * 16 / 9); sx = Math.round((vw - sw) / 2); }
+  else { sh = Math.round(vw * 9 / 16); sy = Math.round((vh - sh) / 2); }
+  const c = document.createElement("canvas"); c.width = sw; c.height = sh;
+  c.getContext("2d").drawImage(v, sx, sy, sw, sh, 0, 0, sw, sh);
+  return new Promise(res => c.toBlob(res, "image/jpeg", 0.92));
+}
+let busy = false;
+async function shoot() {
+  if (busy) return; busy = true;
+  try { await shootInner(); } finally { busy = false; }
+}
+async function shootInner() {
+  const f = $("flash"); f.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove("on")));
+  try { navigator.vibrate && navigator.vibrate(30); } catch (e) {}
+  const blob = await grabFrame();
+  if (!blob) return toast("Kamera ist noch nicht bereit. Kurz warten.");
+  openReview(blob);
+}
+function openReview(blob) {
+  if (pending) URL.revokeObjectURL(pending.url);
+  pending = { blob, url: URL.createObjectURL(blob) };
+  $("review").src = pending.url; setReview(true);
+}
+$("shutter").onclick = shoot;
+$("fileInput").onchange = e => { const f = e.target.files && e.target.files[0]; if (f) openReview(f); e.target.value = ""; };
+$("retake").onclick = () => { if (pending) URL.revokeObjectURL(pending.url); pending = null; setReview(false); renderStep(); };
+$("accept").onclick = () => {
+  if (!pending) return;
+  if (shots[current]) URL.revokeObjectURL(shots[current].url);
+  shots[current] = pending; dbPut(current, pending.blob); pending = null;
+  setReview(false);
+  if (count() === 8) { toast("Alle 8 Fotos fertig!"); openDone(); return; }
+  // naechster fehlender Winkel (im Kreis weiter)
+  for (let k = 1; k <= 8; k++) { const i = (current + k) % 8; if (!shots[i]) { current = i; break; } }
+  renderStep(); toast(`Weiter: ${STEPS[current].title}`);
+};
+$("opacity").oninput = e => $("guide").style.opacity = e.target.value / 100;
+
+/* ---------------- Uebersicht / Speichern ---------------- */
+function openDone() {
+  show("done");
+  const n = count();
+  $("doneLead").textContent = n === 8 ? "Alle Winkel sind fotografiert. Jetzt speichern." : `${n} von 8 fotografiert. Fehlende Fotos antippen, um sie zu machen.`;
+  $("grid").innerHTML = "";
+  STEPS.forEach((s, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "thumb";
+    b.innerHTML = shots[i] ? `<img alt="">` : `<div class="empty">fehlt</div>`;
+    if (shots[i]) b.querySelector("img").src = shots[i].url;
+    const sp = document.createElement("span"); sp.textContent = s.file + ".jpg"; b.appendChild(sp);
+    b.onclick = () => { current = i; pending = null; if (stream) { show("cam"); setReview(false); renderStep(); } else startCamera(); };
+    $("grid").appendChild(b);
+  });
+}
+const files = () => shots.map((s, i) => s && new File([s.blob], STEPS[i].file + ".jpg", { type: "image/jpeg" })).filter(Boolean);
+
+$("toDone").onclick = openDone;
+$("backCam").onclick = () => { if (stream) { show("cam"); setReview(false); renderStep(); } else startCamera(); };
+$("shareAll").onclick = async () => {
+  const fs = files(); if (!fs.length) return toast("Noch keine Fotos.");
+  if (navigator.canShare && navigator.canShare({ files: fs })) {
+    try { await navigator.share({ files: fs, title: "Autofotos" }); } catch (e) { if (e.name !== "AbortError") toast("Teilen ging nicht. Nimm „Alle herunterladen“."); }
+  } else toast("Teilen geht hier nicht. Nimm „Alle herunterladen“.");
+};
+function download(blob, name) {
+  const a = document.createElement("a"); const u = URL.createObjectURL(blob);
+  a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 4000);
+}
+$("dlAll").onclick = async () => {
+  const fs = files(); if (!fs.length) return toast("Noch keine Fotos.");
+  toast(`Lade ${fs.length} Fotos herunter … (ggf. „Mehrere Dateien erlauben“ antippen)`, 4000);
+  for (const f of fs) { download(f, f.name); await new Promise(r => setTimeout(r, 700)); }
+};
+function loadZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  return new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"; s.onload = () => res(window.JSZip); s.onerror = rej; document.head.appendChild(s); });
+}
+$("dlZip").onclick = async () => {
+  const fs = files(); if (!fs.length) return toast("Noch keine Fotos.");
+  try {
+    toast("ZIP wird erstellt …");
+    const JSZip = await loadZip(); const z = new JSZip();
+    fs.forEach(f => z.file(f.name, f));
+    const blob = await z.generateAsync({ type: "blob" });
+    const d = new Date(); const stamp = d.toISOString().slice(0, 10);
+    download(blob, `Autofotos ${stamp}.zip`);
+  } catch (e) { toast("ZIP ging nicht (Internet nötig). Nimm „Alle herunterladen“."); }
+};
+let resetArmed = false;
+$("reset").onclick = async () => {
+  if (!resetArmed) { resetArmed = true; $("reset").textContent = "Sicher? Nochmal tippen = alle Fotos weg"; setTimeout(() => { resetArmed = false; $("reset").textContent = "Neu anfangen"; }, 4000); return; }
+  resetArmed = false; $("reset").textContent = "Neu anfangen";
+  shots.forEach((s, i) => { if (s) URL.revokeObjectURL(s.url); shots[i] = null; });
+  await dbClear(); current = 0; openDone(); toast("Alle Fotos gelöscht. Neu starten über „Zurück zur Kamera“.");
+};
+
+/* ---------------- Start ---------------- */
+$("startBtn").onclick = startCamera;
+$("resumeDone").onclick = openDone;
+(async () => {
+  await dbLoad();
+  const n = count();
+  if (n) { $("savedNote").hidden = false; $("savedNote").textContent = `${n} von 8 Fotos von vorhin sind noch da. „Kamera starten“ macht beim nächsten fehlenden weiter.`; $("resumeDone").hidden = false; $("startBtn").textContent = "Weiter fotografieren"; }
+})();
+})();
+</script>
+</body>
+</html>
